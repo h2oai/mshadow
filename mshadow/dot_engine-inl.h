@@ -531,6 +531,13 @@ struct BLASEngine<gpu, float> {
                                   float **workspace) {
 #if defined(__CUDACC__) && CUDA_VERSION >= 4010
     // Cast DType* to DType** using workspace as a buffer
+    bool alloc_workspace = false;
+    if (workspace == NULL) {
+      // Allocate the workspace if it's NULL.
+      // TODO(sxjscience) Try to move the allocation inside Tensor, which is thread-safe.
+      cudaMalloc(reinterpret_cast<void**>(&workspace), 3 * batch_count * sizeof(float*));
+      alloc_workspace = true;
+    }
     GetBatchedView(workspace, const_cast<float*>(A), batch_count, m * k, stream);
     GetBatchedView(workspace + batch_count,
                    const_cast<float*>(B), batch_count, k * n, stream);
@@ -541,6 +548,9 @@ struct BLASEngine<gpu, float> {
                                             (const float**)(workspace + batch_count), ldb,
                                             &beta, workspace + 2 * batch_count, ldc, batch_count);
     CHECK_EQ(err, CUBLAS_STATUS_SUCCESS) << "Cublas: SgemmBatched fail";
+    if (alloc_workspace) {
+      cudaFree(workspace);
+    }
 #else
     for (int i = 0; i < batch_count; ++i) {
       gemm(stream, transa, transb, m, n, k, alpha,
@@ -630,6 +640,13 @@ struct BLASEngine<gpu, double> {
                                   double **workspace) {
 #if defined(__CUDACC__) && CUDA_VERSION >= 4010
     // Cast DType* to DType** using workspace as a buffer
+    bool alloc_workspace = false;
+    if (workspace == NULL) {
+      // Allocate the workspace if it's NULL.
+      // TODO(sxjscience) Try to move the allocation inside Tensor, which is thread-safe.
+      cudaMalloc(reinterpret_cast<void**>(&workspace), 3 * batch_count * sizeof(double*));
+      alloc_workspace = true;
+    }
     GetBatchedView(workspace, const_cast<double*>(A), batch_count, m * k, stream);
     GetBatchedView(workspace + batch_count,
                    const_cast<double*>(B), batch_count, k * n, stream);
@@ -640,6 +657,9 @@ struct BLASEngine<gpu, double> {
                                             (const double**)(workspace + batch_count), ldb,
                                             &beta, workspace + 2 * batch_count, ldc, batch_count);
     CHECK_EQ(err, CUBLAS_STATUS_SUCCESS) << "Cublas: DgemmBatched fail";
+    if (alloc_workspace) {
+      cudaFree(workspace);
+    }
 #else
     for (int i = 0; i < batch_count; ++i) {
       gemm(stream, transa, transb, m, n, k, alpha,
@@ -701,7 +721,7 @@ struct BLASEngine<gpu, double> {
 };
 #endif  // MSHADOW_USE_CUDA
 // helper function to decide which shape we are in
-inline static Shape<2> GetShape(const Shape<2> &shape, bool transpose) {
+inline Shape<2> GetShape(const Shape<2> &shape, bool transpose) {
   return transpose ? Shape2(shape[1], shape[0]) : shape;
 }
 // dst = dot(lhs[.T], rhs[.T])
@@ -791,7 +811,7 @@ struct DotEngine<SV, xpu, 2, 1, 1, true, false, DType> {
            rhs.dptr_, 1, lhs.dptr_, 1, dst.dptr_, dst.stride_);
     } else {
       DotEngine<SV, xpu, 2, 2, 2, true, false,
-                DType>::Eval(dst, lhs.FlatTo2D(), rhs.FlatTo2D(), scale);
+                DType>::Eval(p_dst, lhs.FlatTo2D(), rhs.FlatTo2D(), scale);
     }
   }
 };
